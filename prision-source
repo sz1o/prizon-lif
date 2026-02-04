@@ -1,0 +1,363 @@
+--[[
+	Prison Life Script
+	Made by webfish
+]]
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local CoreGui = game:GetService("CoreGui")
+local Workspace = game:GetService("Workspace")
+local UIS = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+local settings = {
+    Aimbot = false,
+    TeamCheck = { Criminals = false, Guards = false, Inmates = false },
+    Target = { Torso = false, Head = false },
+    ESP = false,
+    ESPTeamCheck = { Criminals = false, Guards = false, Inmates = false }
+}
+
+local AllowedGuns = {
+    ["AK-47"] = true, ["FAL"] = true, ["M4A1"] = true,
+    ["M9"] = true, ["MP5"] = true, ["Remington 870"] = true,
+    ["Taser"] = true
+}
+
+local function holdingValidGun()
+    local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
+    return tool and AllowedGuns[tool.Name] or false
+end
+
+local ESP_Folder = Instance.new("Folder")
+ESP_Folder.Name = "ESP_Storage"
+ESP_Folder.Parent = CoreGui
+
+local function validTeam(plr)
+    if not settings.TeamCheck.Criminals and plr.Team and plr.Team.Name == "Criminals" then return false end
+    if not settings.TeamCheck.Guards and plr.Team and plr.Team.Name == "Guards" then return false end
+    if not settings.TeamCheck.Inmates and plr.Team and plr.Team.Name == "Inmates" then return false end
+    return true
+end
+
+local function getTargetPart(char)
+    local hum = char:FindFirstChild("Humanoid")
+    if not hum or hum.Health <= 0 then return nil end
+    if settings.Target.Head and char:FindFirstChild("Head") then return char.Head end
+    if settings.Target.Torso and char:FindFirstChild("Torso") then return char.Torso end
+    return nil
+end
+
+local function getClosestScreenTarget()
+    local best, bestDist = nil, math.huge
+    local mousePos = UIS:GetMouseLocation()
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character and validTeam(plr) then
+            local part = getTargetPart(plr.Character)
+            if part then
+                local pos, visible = Camera:WorldToViewportPoint(part.Position)
+                if visible then
+                    local diff = (Vector2.new(pos.X, pos.Y) - mousePos).Magnitude
+
+                    local rpc = RaycastParams.new()
+                    rpc.FilterType = Enum.RaycastFilterType.Blacklist
+                    rpc.FilterDescendantsInstances = {LocalPlayer.Character}
+
+                    local ray = Workspace:Raycast(Camera.CFrame.Position, part.Position - Camera.CFrame.Position, rpc)
+
+                    if not ray or (ray.Instance and ray.Instance:IsDescendantOf(plr.Character)) then
+                        if diff < bestDist then
+                            bestDist = diff
+                            best = plr.Character
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+RunService.RenderStepped:Connect(function()
+    if settings.Aimbot and holdingValidGun() then
+        local target = getClosestScreenTarget()
+        if target then
+            local part = getTargetPart(target)
+            if part then
+                Camera.CFrame = CFrame.new(Camera.CFrame.Position, part.Position)
+            end
+        end
+    end
+end)
+
+local function teamAllowed(plr)
+    if not plr.Team then return false end
+    if plr.Team.Name == "Criminals" and settings.ESPTeamCheck.Criminals then return true end
+    if plr.Team.Name == "Guards" and settings.ESPTeamCheck.Guards then return true end
+    if plr.Team.Name == "Inmates" and settings.ESPTeamCheck.Inmates then return true end
+    return false
+end
+
+local function teamColor(plr)
+    if not plr.Team then return Color3.new(1,1,1) end
+    if plr.Team.Name == "Criminals" then return Color3.fromRGB(255,0,0) end
+    if plr.Team.Name == "Guards" then return Color3.fromRGB(0,120,255) end
+    if plr.Team.Name == "Inmates" then return Color3.fromRGB(255,140,0) end
+    return Color3.new(1,1,1)
+end
+
+local function getHighlight(plr)
+    local h = ESP_Folder:FindFirstChild(plr.Name)
+    if h then return h end
+    local Highlight = Instance.new("Highlight")
+    Highlight.Name = plr.Name
+    Highlight.Parent = ESP_Folder
+    return Highlight
+end
+
+local function removeHighlight(plr)
+    local h = ESP_Folder:FindFirstChild(plr.Name)
+    if h then h:Destroy() end
+end
+
+Players.PlayerRemoving:Connect(removeHighlight)
+
+RunService.RenderStepped:Connect(function()
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+            local hum = plr.Character:FindFirstChild("Humanoid")
+            if not hrp or not hum or hum.Health <= 0 then removeHighlight(plr) continue end
+            if not settings.ESP then removeHighlight(plr) continue end
+            if not teamAllowed(plr) then removeHighlight(plr) continue end
+
+            local h = getHighlight(plr)
+            h.Adornee = plr.Character
+
+            local dist = (Camera.CFrame.Position - hrp.Position).Magnitude
+            h.OutlineColor = dist <= 25 and Color3.new(1,1,1) or Color3.new(0,0,0)
+            h.FillColor = teamColor(plr)
+            h.FillTransparency = 0.5
+            h.OutlineTransparency = 0
+        end
+    end
+end)
+
+local oldGui = CoreGui:FindFirstChild("Gui")
+if oldGui then oldGui:Destroy() end
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "Gui"
+ScreenGui.Parent = CoreGui
+ScreenGui.ResetOnSpawn = false
+
+local Frame = Instance.new("Frame")
+Frame.Size = UDim2.new(0, 250, 0, 220)
+Frame.Position = UDim2.new(0, 20, 0, 20)
+Frame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+Frame.BorderSizePixel = 0
+Frame.Active = true
+Frame.Draggable = true
+Frame.Parent = ScreenGui
+
+Instance.new("UICorner", Frame).CornerRadius = UDim.new(0, 8)
+
+local Stroke = Instance.new("UIStroke", Frame)
+Stroke.Thickness = 1.6
+Stroke.Color = Color3.fromRGB(80, 80, 80)
+
+local UIScale = Instance.new("UIScale", Frame)
+UIScale.Scale = 0
+TweenService:Create(UIScale, TweenInfo.new(0.25, Enum.EasingStyle.Back), {Scale = 1}):Play()
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -30, 0, 25)
+Title.Position = UDim2.new(0, 10, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "Prison Life - Made by webfish"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 16
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = Frame
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 20, 0, 20)
+CloseBtn.Position = UDim2.new(1, -25, 0, 3)
+CloseBtn.BackgroundTransparency = 1
+CloseBtn.Text = "X"
+CloseBtn.TextColor3 = Color3.fromRGB(255, 80, 80)
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.TextSize = 16
+CloseBtn.Parent = Frame
+
+CloseBtn.MouseButton1Click:Connect(function()
+    ScreenGui:Destroy()
+end)
+
+local HideBtn = Instance.new("TextButton")
+HideBtn.Size = UDim2.new(0, 80, 0, 28)
+HideBtn.Position = UDim2.new(0, 280, 0, 20)
+HideBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+HideBtn.Text = "Hide"
+HideBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+HideBtn.Font = Enum.Font.GothamBold
+HideBtn.TextSize = 14
+HideBtn.Parent = ScreenGui
+HideBtn.Active = true
+HideBtn.Draggable = true
+
+Instance.new("UICorner", HideBtn)
+
+HideBtn.MouseButton1Click:Connect(function()
+    Frame.Visible = not Frame.Visible
+    HideBtn.Text = Frame.Visible and "Hide" or "Show"
+end)
+
+local TabsFrame = Instance.new("Frame")
+TabsFrame.Size = UDim2.new(1, 0, 0, 30)
+TabsFrame.Position = UDim2.new(0, 0, 0, 25)
+TabsFrame.BackgroundTransparency = 1
+TabsFrame.Parent = Frame
+
+local TabLayout = Instance.new("UIListLayout", TabsFrame)
+TabLayout.FillDirection = Enum.FillDirection.Horizontal
+TabLayout.Padding = UDim.new(0, 6)
+
+local function createTab(name)
+    local tabBtn = Instance.new("TextButton")
+    tabBtn.Size = UDim2.new(0, 70, 0, 26)
+    tabBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    tabBtn.Text = name
+    tabBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    tabBtn.Font = Enum.Font.GothamBold
+    tabBtn.TextSize = 13
+    tabBtn.Parent = TabsFrame
+    Instance.new("UICorner", tabBtn)
+
+    local page = Instance.new("ScrollingFrame")
+    page.Size = UDim2.new(1, 0, 1, -60)
+    page.Position = UDim2.new(0, 0, 0, 55)
+    page.CanvasSize = UDim2.new(0, 0, 0, 0)
+    page.ScrollBarThickness = 4
+    page.BackgroundTransparency = 1
+    page.Visible = false
+    page.Parent = Frame
+
+    local layout = Instance.new("UIListLayout", page)
+    layout.Padding = UDim.new(0, 4)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+
+    layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        page.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 10)
+    end)
+
+    tabBtn.MouseButton1Click:Connect(function()
+        for _, p in ipairs(Frame:GetChildren()) do
+            if p:IsA("ScrollingFrame") then p.Visible = false end
+        end
+        page.Visible = true
+    end)
+
+    return page
+end
+
+local WarningTab = createTab("Warning")
+local AimbotTab = createTab("Aimbot")
+local ESPTab = createTab("ESP")
+task.wait(0.1)
+WarningTab.Visible = true
+
+local function newLabel(parent, text)
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, -18, 0, 24)
+    lbl.Position = UDim2.new(0, 12, 0, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = text
+    lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 14
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = parent
+end
+
+local function newToggle(parent, texto, callback)
+    local container = Instance.new("Frame", parent)
+    container.Size = UDim2.new(1, 0, 0, 32)
+    container.BackgroundTransparency = 1
+
+    local btn = Instance.new("Frame", container)
+    btn.Size = UDim2.new(1, -20, 1, -4)
+    btn.Position = UDim2.new(0, 10, 0, 2)
+    btn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    btn.BorderSizePixel = 0
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+
+    local liquid = Instance.new("Frame", btn)
+    liquid.BackgroundColor3 = Color3.fromRGB(0, 120, 255)
+    liquid.Size = UDim2.new(0, 0, 1, 0)
+    Instance.new("UICorner", liquid).CornerRadius = UDim.new(0, 6)
+
+    local label = Instance.new("TextLabel", btn)
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = texto .. " : OFF"
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 16
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Position = UDim2.new(0, 10, 0, 0)
+
+    local click = Instance.new("TextButton", btn)
+    click.Size = UDim2.new(1, 0, 1, 0)
+    click.BackgroundTransparency = 1
+    click.Text = ""
+
+    click.MouseButton1Click:Connect(function()
+        local on = liquid.Size.X.Scale == 1
+        on = not on
+        label.Text = texto .. (on and " : ON" or " : OFF")
+        TweenService:Create(liquid, TweenInfo.new(0.22), {
+            Size = on and UDim2.new(1,0,1,0) or UDim2.new(0,0,1,0)
+        }):Play()
+        callback(on)
+    end)
+end
+
+newLabel(WarningTab, "Warning:")
+local msg = Instance.new("TextLabel")
+msg.Size = UDim2.new(1, -20, 0, 0)
+msg.BackgroundTransparency = 1
+msg.Text = "Aimbot only works when holding a valid weapon."
+msg.TextColor3 = Color3.fromRGB(255, 255, 255)
+msg.Font = Enum.Font.GothamBold
+msg.TextSize = 14
+msg.TextWrapped = true
+msg.TextXAlignment = Enum.TextXAlignment.Left
+msg.AutomaticSize = Enum.AutomaticSize.Y
+msg.Parent = WarningTab
+
+newToggle(AimbotTab, "Aimbot", function(v)
+    settings.Aimbot = v
+end)
+
+newLabel(AimbotTab, "Team Check:")
+newToggle(AimbotTab, "Criminals", function(v) settings.TeamCheck.Criminals = v end)
+newToggle(AimbotTab, "Guards", function(v) settings.TeamCheck.Guards = v end)
+newToggle(AimbotTab, "Inmates", function(v) settings.TeamCheck.Inmates = v end)
+
+newLabel(AimbotTab, "Aim Target:")
+newToggle(AimbotTab, "Torso", function(v) settings.Target.Torso = v end)
+newToggle(AimbotTab, "Head", function(v) settings.Target.Head = v end)
+
+newToggle(ESPTab, "ESP", function(v)
+    settings.ESP = v
+end)
+
+newLabel(ESPTab, "ESP Team Check:")
+newToggle(ESPTab, "Criminals", function(v) settings.ESPTeamCheck.Criminals = v end)
+newToggle(ESPTab, "Guards", function(v) settings.ESPTeamCheck.Guards = v end)
+newToggle(ESPTab, "Inmates", function(v) settings.ESPTeamCheck.Inmates = v end)
